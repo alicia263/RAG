@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.4.3
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ports:
+      - "${ELASTIC_PORT:-9200}:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - airflow-rag
+
+  postgres:
+    image: postgres:13
+    container_name: postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - airflow-rag
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    depends_on:
+      - postgres
+    networks:
+      - airflow-rag
+
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi
+    ports:
+      - "8001:8001"
+    depends_on:
+      - elasticsearch
+      - postgres
+    networks:
+      - airflow-rag
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    volumes:
+      - ./:/app
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    command:
+      - "http"
+      - "fastapi:8001"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    ports:
+      - 4040:4040
+    depends_on:
+      - fastapi
+    networks:
+      - airflow-rag
+
+volumes:
+  elasticsearch_data:
+  postgres_data:
+  grafana_data:
+
+networks:
+  airflow-rag:
